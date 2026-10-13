@@ -1,0 +1,27 @@
+
+# Python environments and cache
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Dataset
+datasets/
+
+# Training outputs
+runs/
+experiments/
+
+# Model weights
+*.pt
+*.pth
+*.onnx
+
+# Local secrets
+.env
+.env.*
+
+# Editor files
+.vscode/
+.idea/
