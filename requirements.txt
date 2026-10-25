@@ -1,0 +1,2 @@
+# Core data conversion and unit-test dependencies.
+Pillow>=10

@@ -7,6 +7,11 @@ import tempfile
 import shutil
 import torch
 
+try:
+    from .d04_common import project_path
+except ImportError:
+    from d04_common import project_path
+
 
 # ============================================================
 # D04 Latency / FPS Unified Evaluation
@@ -41,7 +46,7 @@ MODE = "roi_sr_cached"
 # 基础配置
 # ============================================================
 
-MODEL_PATH = r"F:\D04\experiments\baseline_640\weights\best.pt"
+MODEL_PATH = project_path('experiments', 'baseline_640', 'weights', 'best.pt')
 
 IMG_SIZE = 640
 
@@ -55,7 +60,7 @@ DEVICE = 0
 # ============================================================
 
 REALESRGAN_DIR = Path(
-    r"F:\D04\super_resolution\Real-ESRGAN"
+    project_path('super_resolution', 'Real-ESRGAN')
 )
 
 REALESRGAN_SCRIPT = (
@@ -73,15 +78,15 @@ REALESRGAN_TILE = "256"
 # ============================================================
 
 ORIGINAL_IMAGE_DIR = Path(
-    r"F:\D04\datasets\VisDroneYOLO\images\val"
+    project_path('datasets', 'VisDroneYOLO', 'images', 'val')
 )
 
 FULL_SR_IMAGE_DIR = Path(
-    r"F:\D04\datasets\VisDroneYOLO_SR\images\val"
+    project_path('datasets', 'VisDroneYOLO_SR', 'images', 'val')
 )
 
 ROI_ROOT = Path(
-    r"F:\D04\experiments\roi_sr_x2"
+    project_path('experiments', 'roi_sr_x2')
 )
 
 ROI_CROP_DIR = ROI_ROOT / "roi_crops"
@@ -96,7 +101,7 @@ ROI_METADATA = ROI_ROOT / "roi_metadata.json"
 # ============================================================
 
 OUTPUT_ROOT = Path(
-    r"F:\D04\experiments\roi_sr_x2"
+    project_path('experiments', 'roi_sr_x2')
 )
 
 OUTPUT_ROOT.mkdir(
@@ -340,7 +345,7 @@ def run_roi_sr_cached(image_path):
     # 第一阶段：原图YOLO
     # --------------------------------------------------------
 
-    original_result = model.predict(
+    model.predict(
         source=str(image_path),
         imgsz=IMG_SIZE,
         conf=0.001,

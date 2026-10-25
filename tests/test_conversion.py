@@ -39,9 +39,14 @@ class ConversionTests(unittest.TestCase):
         target = self.root / "coco.json"
         convert(self.output / "images/val", self.output / "labels/val", target)
         data = json.loads(target.read_text())
-        self.assertEqual(len(data["categories"]), 10)
+        self.assertEqual([item["id"] for item in data["categories"]], list(range(1, 11)))
+        self.assertEqual(data["annotations"][0]["category_id"], 1)
         self.assertEqual(data["annotations"][0]["bbox"], [0, 0, 20, 20])
         self.assertEqual(data["annotations"][0]["area"], 400)
+
+    def test_malformed_annotation_fails_with_context(self):
+        with self.assertRaisesRegex(ValueError, "expected at least 8 columns"):
+            self.run_conversion("0,0,10,10,1\n")
 
     def test_missing_annotation_fails_before_output(self):
         with self.assertRaises(FileNotFoundError):

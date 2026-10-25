@@ -5,6 +5,11 @@ import torch
 from ultralytics import YOLO
 from torchvision.ops import nms
 
+try:
+    from .d04_common import project_path
+except ImportError:
+    from d04_common import project_path
+
 
 # ============================================================
 # D04 ROI-SR Fusion
@@ -14,7 +19,7 @@ from torchvision.ops import nms
 # 路径
 # ============================================================
 
-ROOT = Path(r"F:\D04")
+ROOT = Path(project_path())
 
 MODEL_PATH = (
     ROOT

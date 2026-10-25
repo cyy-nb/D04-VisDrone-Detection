@@ -1,16 +1,20 @@
 from pathlib import Path
 import json
-import tempfile
 
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+
+try:
+    from .d04_common import project_path
+except ImportError:
+    from d04_common import project_path
 
 
 # ============================================================
 # 路径
 # ============================================================
 
-ROOT = Path(r"F:\D04")
+ROOT = Path(project_path())
 
 IMAGE_DIR = (
     ROOT

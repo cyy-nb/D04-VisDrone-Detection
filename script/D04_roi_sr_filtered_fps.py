@@ -4,6 +4,11 @@ import time
 import json
 import torch
 
+try:
+    from .d04_common import project_path
+except ImportError:
+    from d04_common import project_path
+
 
 # ============================================================
 # D04 ROI-SR Filtered FPS Evaluation
@@ -32,7 +37,7 @@ import torch
 # 基础配置
 # ============================================================
 
-MODEL_PATH = r"F:\D04\experiments\baseline_640\weights\best.pt"
+MODEL_PATH = project_path('experiments', 'baseline_640', 'weights', 'best.pt')
 
 IMG_SIZE = 640
 
@@ -50,11 +55,11 @@ SMALL_MAX = 32 ** 2
 # ============================================================
 
 ORIGINAL_IMAGE_DIR = Path(
-    r"F:\D04\datasets\VisDroneYOLO\images\val"
+    project_path('datasets', 'VisDroneYOLO', 'images', 'val')
 )
 
 ROI_ROOT = Path(
-    r"F:\D04\experiments\roi_sr_x2"
+    project_path('experiments', 'roi_sr_x2')
 )
 
 ROI_SR_DIR = ROI_ROOT / "roi_sr"
@@ -462,7 +467,7 @@ print("=" * 70)
 print()
 
 print(
-    f"Experiment: roi_sr_cached_filtered"
+    "Experiment: roi_sr_cached_filtered"
 )
 
 print(

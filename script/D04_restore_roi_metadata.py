@@ -2,20 +2,25 @@ from ultralytics import YOLO
 from pathlib import Path
 import json
 
+try:
+    from .d04_common import project_path
+except ImportError:
+    from d04_common import project_path
+
 # ==================================================
 # D04 ROI-SR
 # Restore ROI metadata from the ORIGINAL ROI rule
 # 不重新生成 ROI 图片
 # ==================================================
 
-MODEL_PATH = r"F:\D04\experiments\baseline_640\weights\best.pt"
+MODEL_PATH = project_path('experiments', 'baseline_640', 'weights', 'best.pt')
 
 IMAGE_DIR = Path(
-    r"F:\D04\datasets\VisDroneYOLO\images\val"
+    project_path('datasets', 'VisDroneYOLO', 'images', 'val')
 )
 
 OUTPUT_DIR = Path(
-    r"F:\D04\experiments\roi_sr_x2"
+    project_path('experiments', 'roi_sr_x2')
 )
 
 ROI_DIR = OUTPUT_DIR / "roi_crops"

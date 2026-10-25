@@ -1,24 +1,28 @@
 from pathlib import Path
 import cv2
-import numpy as np
 from ultralytics import YOLO
+
+try:
+    from .d04_common import project_path
+except ImportError:
+    from d04_common import project_path
 
 # ============================================================
 # D04 Baseline Error Visualization
 # ============================================================
 
-MODEL_PATH = r"F:\D04\experiments\baseline_640\weights\best.pt"
+MODEL_PATH = project_path('experiments', 'baseline_640', 'weights', 'best.pt')
 
 IMAGE_DIR = Path(
-    r"F:\D04\datasets\VisDroneYOLO\images\val"
+    project_path('datasets', 'VisDroneYOLO', 'images', 'val')
 )
 
 LABEL_DIR = Path(
-    r"F:\D04\datasets\VisDroneYOLO\labels\val"
+    project_path('datasets', 'VisDroneYOLO', 'labels', 'val')
 )
 
 OUTPUT_DIR = Path(
-    r"F:\D04\experiments\baseline_640\error_analysis_visual"
+    project_path('experiments', 'baseline_640', 'error_analysis_visual')
 )
 
 IMG_SIZE = 640

@@ -5,25 +5,30 @@ from PIL import Image
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
+try:
+    from .d04_common import project_path
+except ImportError:
+    from d04_common import project_path
+
 
 # =========================================================
 # 路径
 # =========================================================
 
 IMAGE_DIR = Path(
-    r"F:\D04\datasets\VisDroneYOLO\images\val"
+    project_path('datasets', 'VisDroneYOLO', 'images', 'val')
 )
 
 LABEL_DIR = Path(
-    r"F:\D04\datasets\VisDroneYOLO\labels\val"
+    project_path('datasets', 'VisDroneYOLO', 'labels', 'val')
 )
 
 PRED_FILE = Path(
-    r"F:\D04\experiments\roi_sr_x2\roi_fused_predictions_small32.json"
+    project_path('experiments', 'roi_sr_x2', 'roi_fused_predictions_small32.json')
 )
 
 OUTPUT_DIR = Path(
-    r"F:\D04\experiments\roi_sr_x2"
+    project_path('experiments', 'roi_sr_x2')
 )
 
 GT_FILE = OUTPUT_DIR / "small32_eval_ground_truth.json"

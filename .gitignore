@@ -25,3 +25,7 @@ experiments/
 # Editor files
 .vscode/
 .idea/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/

@@ -1,143 +1,137 @@
-
 # -*- coding: utf-8 -*-
-from pathlib import Path
-from datetime import datetime
-import time
+"""Benchmark baseline and detection-embedded D04 inference latency."""
+
+from __future__ import annotations
+
+import argparse
 import gc
 import statistics
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Sequence
 
 import cv2
 import numpy as np
 import torch
 from ultralytics import YOLO
 
-# ==================== 统一配置 ====================
-ROOT = Path(r"F:\D04")
-
-MODELS = {
-    "Baseline": ROOT / "experiments" / "baseline_640" /
-                "weights" / "best.pt",
-
-    "D04_Detection_Embedded": ROOT / "experiments" /
-                "detection_embedded" / "dee_yolov8s_v1" /
-                "weights" / "best.pt",
-}
-
-IMAGE_DIR = ROOT / "datasets" / "VisDroneYOLO" / "images" / "val"
-OUTPUT_DIR = ROOT / "experiments" / "latency_comparison"
-
-IMG_SIZE = 640
-DEVICE = "0" if torch.cuda.is_available() else "cpu"
-WARMUP = 20
-CONF = 0.25
-IOU = 0.7
+from script.d04_common import atomic_write_text, image_files, project_path
+from script.d04_registry import ensure_d04_registered
 
 
-def sync():
-    if torch.cuda.is_available():
+def sync() -> None:
+    if torch.cuda.is_available() and torch.cuda.is_initialized():
         torch.cuda.synchronize()
 
 
-def load_images():
-    # 只读取 jpg，避免 Windows 下大小写通配符重复计数
-    paths = sorted(IMAGE_DIR.glob("*.jpg"))
+def load_images(image_dir: Path, limit: int | None = None) -> list[tuple[str, np.ndarray]]:
+    paths = image_files(image_dir)
+    if limit is not None:
+        paths = paths[:limit]
     if not paths:
-        paths = sorted(IMAGE_DIR.glob("*.JPG"))
+        raise RuntimeError(f"No validation images found: {image_dir}")
 
-    if not paths:
-        raise RuntimeError(f"没有找到验证图片：{IMAGE_DIR}")
+    images: list[tuple[str, np.ndarray]] = []
+    for path in paths:
+        image = cv2.imread(str(path))
+        if image is None:
+            raise RuntimeError(f"OpenCV could not read image: {path}")
+        images.append((path.name, image))
 
-    images = []
-    for p in paths:
-        im = cv2.imread(str(p))
-        if im is not None:
-            images.append((p.name, im))
-
-    print(f"成功读取验证图片：{len(images)} 张")
-    if len(images) != 548:
-        print("警告：图片数量不是预期的 548 张，请检查验证集。")
+    print(f"Loaded validation images: {len(images)}")
     return images
 
 
-def make_tensor(im, model):
-    # 固定输入为 640×640，预处理在纯模型计时之外
-    im = cv2.resize(im, (IMG_SIZE, IMG_SIZE))
-    im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
-    arr = np.ascontiguousarray(im.transpose(2, 0, 1))
+def make_tensor(image: np.ndarray, model: torch.nn.Module, imgsz: int) -> torch.Tensor:
+    """Prepare one normalized NCHW tensor outside the pure-forward timer."""
 
-    p = next(model.parameters())
-    x = torch.from_numpy(arr).unsqueeze(0)
-    x = x.to(device=p.device, dtype=p.dtype)
-    x = x.float().div_(255.0)
-    return x
+    resized = cv2.resize(image, (imgsz, imgsz))
+    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+    array = np.ascontiguousarray(rgb.transpose(2, 0, 1))
+    parameter = next(model.parameters())
+    tensor = torch.from_numpy(array).unsqueeze(0).to(device=parameter.device, dtype=parameter.dtype)
+    return tensor.float().div_(255.0)
 
 
-def stats(times):
-    avg = statistics.mean(times)
+def summarize(times: Sequence[float]) -> dict[str, float]:
+    if not times:
+        raise ValueError("At least one timing sample is required")
+    average = statistics.mean(times)
     return {
-        "avg": avg,
+        "avg": average,
         "median": statistics.median(times),
         "p95": float(np.percentile(times, 95)),
-        "fps": 1000.0 / avg,
+        "fps": 1000.0 / average,
     }
 
 
-def pure_forward(yolo, images):
+def pure_forward(
+    yolo: YOLO,
+    images: Sequence[tuple[str, np.ndarray]],
+    *,
+    imgsz: int,
+    warmup: int,
+) -> dict[str, float]:
     model = yolo.model.eval()
-    tensors = [make_tensor(im, model) for _, im in images]
-
     with torch.inference_mode():
-        # 预热
-        for i in range(WARMUP):
-            model(tensors[i % len(tensors)])
+        for index in range(warmup):
+            model(make_tensor(images[index % len(images)][1], model, imgsz))
         sync()
 
-        times = []
-        for x in tensors:
+        times: list[float] = []
+        for _, image in images:
+            tensor = make_tensor(image, model, imgsz)
             sync()
-            t0 = time.perf_counter()
-            model(x)
+            start = time.perf_counter()
+            model(tensor)
             sync()
-            times.append((time.perf_counter() - t0) * 1000)
+            times.append((time.perf_counter() - start) * 1000)
+    return summarize(times)
 
-    return stats(times)
 
-
-def end_to_end(yolo, images):
-    # 计时包含 Ultralytics 的预处理、模型推理、后处理
+def end_to_end(
+    yolo: YOLO,
+    images: Sequence[tuple[str, np.ndarray]],
+    *,
+    imgsz: int,
+    device: str,
+    warmup: int,
+    confidence: float,
+    iou: float,
+) -> dict[str, float]:
     with torch.inference_mode():
-        for i in range(WARMUP):
+        for index in range(warmup):
             yolo.predict(
-                source=images[i % len(images)][1],
-                imgsz=IMG_SIZE,
-                device=DEVICE,
-                conf=CONF,
-                iou=IOU,
+                source=images[index % len(images)][1],
+                imgsz=imgsz,
+                device=device,
+                conf=confidence,
+                iou=iou,
                 verbose=False,
-                save=False
+                save=False,
             )
         sync()
 
-        times = []
-        for _, im in images:
+        times: list[float] = []
+        for _, image in images:
             sync()
-            t0 = time.perf_counter()
+            start = time.perf_counter()
             yolo.predict(
-                source=im,
-                imgsz=IMG_SIZE,
-                device=DEVICE,
-                conf=CONF,
-                iou=IOU,
+                source=image,
+                imgsz=imgsz,
+                device=device,
+                conf=confidence,
+                iou=iou,
                 verbose=False,
-                save=False
+                save=False,
             )
             sync()
-            times.append((time.perf_counter() - t0) * 1000)
+            times.append((time.perf_counter() - start) * 1000)
+    return summarize(times)
 
-    return stats(times)
 
-
-def format_stats(name, result):
+def format_stats(name: str, result: dict[str, float]) -> str:
     return (
         f"{name}\n"
         f"  Average latency : {result['avg']:.3f} ms/image\n"
@@ -147,79 +141,93 @@ def format_stats(name, result):
     )
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--baseline", type=Path, default=project_path("experiments", "baseline_640", "weights", "best.pt"))
+    parser.add_argument(
+        "--d04",
+        type=Path,
+        default=project_path(
+            "experiments", "detection_embedded", "dee_yolov8s_v1", "weights", "best.pt"
+        ),
+    )
+    parser.add_argument(
+        "--image-dir", type=Path, default=project_path("datasets", "VisDroneYOLO", "images", "val")
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=project_path("experiments", "latency_comparison")
+    )
+    parser.add_argument("--imgsz", type=int, default=640)
+    parser.add_argument("--device", default=None, help='CUDA device such as "0", or "cpu"')
+    parser.add_argument("--warmup", type=int, default=20)
+    parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--iou", type=float, default=0.7)
+    parser.add_argument("--limit", type=int, default=None, help="benchmark only the first N images")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+    ensure_d04_registered()
+    device = args.device or ("0" if torch.cuda.is_available() else "cpu")
+    models = {"Baseline": args.baseline, "D04_Detection_Embedded": args.d04}
+
+    for name, path in models.items():
+        if not path.is_file():
+            raise FileNotFoundError(f"{name} weights not found: {path}")
+    images = load_images(args.image_dir, args.limit)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
     if not torch.cuda.is_available():
-        print("警告：CUDA 不可用，本次将在 CPU 上测试。")
+        print("WARNING: CUDA is unavailable; benchmark will run on CPU.")
 
-    for name, path in MODELS.items():
-        if not path.exists():
-            raise FileNotFoundError(f"{name} 权重不存在：{path}")
-
-    if not IMAGE_DIR.exists():
-        raise FileNotFoundError(f"验证集目录不存在：{IMAGE_DIR}")
-
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    images = load_images()
-
-    print(f"设备：{DEVICE}")
-    if torch.cuda.is_available():
-        print(f"GPU：{torch.cuda.get_device_name(0)}")
-    print(f"输入尺寸：{IMG_SIZE}")
-    print(f"每种测试的预热次数：{WARMUP}")
-
-    results = {}
-
-    for name, path in MODELS.items():
-        print(f"\n正在测试：{name}")
-        print(f"权重：{path}")
-
+    results: dict[str, dict[str, object]] = {}
+    for name, path in models.items():
+        print(f"\nBenchmarking: {name}\nWeights: {path}")
         yolo = YOLO(str(path))
-
-        pure = pure_forward(yolo, images)
-        print(format_stats("纯模型推理", pure))
-
-        e2e = end_to_end(yolo, images)
-        print(format_stats("端到端推理", e2e))
-
-        results[name] = {
-            "pure": pure,
-            "e2e": e2e,
-            "path": str(path),
-        }
-
+        pure = pure_forward(yolo, images, imgsz=args.imgsz, warmup=args.warmup)
+        print(format_stats("Pure model forward", pure))
+        e2e = end_to_end(
+            yolo,
+            images,
+            imgsz=args.imgsz,
+            device=device,
+            warmup=args.warmup,
+            confidence=args.conf,
+            iou=args.iou,
+        )
+        print(format_stats("End-to-end prediction", e2e))
+        results[name] = {"pure": pure, "e2e": e2e, "path": str(path)}
         del yolo
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    base = results["Baseline"]
+    baseline = results["Baseline"]
     d04 = results["D04_Detection_Embedded"]
-
-    pure_ratio = d04["pure"]["avg"] / base["pure"]["avg"]
-    e2e_ratio = d04["e2e"]["avg"] / base["e2e"]["avg"]
+    pure_ratio = d04["pure"]["avg"] / baseline["pure"]["avg"]
+    e2e_ratio = d04["e2e"]["avg"] / baseline["e2e"]["avg"]
 
     report = [
         "D04 BASELINE VS DETECTION-EMBEDDED LATENCY",
         "=" * 65,
         f"Time: {datetime.now().isoformat(timespec='seconds')}",
+        f"Device: {device}",
         f"GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}",
         f"PyTorch: {torch.__version__}",
-        f"CUDA available: {torch.cuda.is_available()}",
-        f"Input size: {IMG_SIZE}x{IMG_SIZE}",
+        f"Input size: {args.imgsz}x{args.imgsz}",
         f"Validation images: {len(images)}",
-        f"Warm-up runs per method/model: {WARMUP}",
-        f"Baseline weights: {base['path']}",
+        f"Warm-up runs per method/model: {args.warmup}",
+        f"Baseline weights: {baseline['path']}",
         f"D04 weights: {d04['path']}",
         "",
     ]
-
     for name in ("Baseline", "D04_Detection_Embedded"):
-        r = results[name]
+        entry = results[name]
         report.append(f"MODEL: {name}")
-        report.append(format_stats("Pure model forward", r["pure"]))
-        report.append(format_stats("End-to-end prediction", r["e2e"]))
+        report.append(format_stats("Pure model forward", entry["pure"]))
+        report.append(format_stats("End-to-end prediction", entry["e2e"]))
         report.append("-" * 65)
-
     report += [
         "LATENCY RATIOS (D04 / BASELINE)",
         f"Pure model latency ratio: {pure_ratio:.4f}x",
@@ -235,11 +243,9 @@ def main():
     ]
 
     text = "\n".join(report) + "\n"
-    output_file = OUTPUT_DIR / "D04_latency_fps_results.txt"
-    output_file.write_text(text, encoding="utf-8")
-
+    output_file = atomic_write_text(args.output_dir / "D04_latency_fps_results.txt", text)
     print("\n" + text)
-    print(f"\n结果已保存：{output_file}")
+    print(f"Results saved: {output_file}")
 
 
 if __name__ == "__main__":

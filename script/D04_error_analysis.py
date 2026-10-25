@@ -5,15 +5,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 from ultralytics import YOLO
 
+try:
+    from .d04_common import project_path
+except ImportError:
+    from d04_common import project_path
+
 # ============================================================
 # D04 Baseline Error Analysis
 # ============================================================
 
-MODEL_PATH = r"F:\D04\experiments\baseline_640\weights\best.pt"
-IMAGE_DIR = Path(r"F:\D04\datasets\VisDroneYOLO\images\val")
-LABEL_DIR = Path(r"F:\D04\datasets\VisDroneYOLO\labels\val")
+MODEL_PATH = project_path('experiments', 'baseline_640', 'weights', 'best.pt')
+IMAGE_DIR = Path(project_path('datasets', 'VisDroneYOLO', 'images', 'val'))
+LABEL_DIR = Path(project_path('datasets', 'VisDroneYOLO', 'labels', 'val'))
 
-OUTPUT_DIR = Path(r"F:\D04\experiments\baseline_640\error_analysis")
+OUTPUT_DIR = Path(project_path('experiments', 'baseline_640', 'error_analysis'))
 
 IMG_SIZE = 640
 
